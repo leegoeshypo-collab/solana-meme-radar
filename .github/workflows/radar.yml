@@ -1,9 +1,8 @@
-
 name: Solana Meme Coin Radar
 
 on:
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/20 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -21,15 +20,18 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install dependencies
+        run: pip install requests
+
       - name: Run radar
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MIN_LIQUIDITY_USD: "10000"
+          MIN_LIQUIDITY_USD: "8000"
           MIN_MARKET_CAP_USD: "10000"
-          MAX_MARKET_CAP_USD: "500000"
-          MAX_AGE_HOURS: "24"
-          MIN_24H_VOLUME_USD: "5000"
+          MAX_MARKET_CAP_USD: "800000"
+          MAX_AGE_HOURS: "36"
+          MIN_24H_VOLUME_USD: "3000"
         run: python radar.py
 
       - name: Save seen-token list
