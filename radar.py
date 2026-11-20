@@ -8,13 +8,13 @@ from datetime import datetime, timezone
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Filters tuned for small account early plays
-MIN_LIQUIDITY = 15000          # Higher = safer
-MIN_MARKET_CAP = 25000
-MAX_MARKET_CAP = 450000
-MAX_AGE_HOURS = 28
-MIN_VOLUME_24H = 8000
-MIN_BUY_SELL_RATIO = 1.15      # Must have more buys than sells
+# Looser filters for more alerts
+MIN_LIQUIDITY = 7000
+MIN_MARKET_CAP = 12000
+MAX_MARKET_CAP = 650000
+MAX_AGE_HOURS = 40
+MIN_VOLUME_24H = 3500
+MIN_BUY_SELL_RATIO = 0.95
 
 SEEN_FILE = "seen.json"
 
@@ -61,7 +61,6 @@ def get_best_pair(token_address):
         if r.status_code == 200:
             pairs = r.json()
             if pairs:
-                # Prefer the pair with highest liquidity
                 return max(pairs, key=lambda p: float(p.get("liquidity", {}).get("usd") or 0))
     except Exception as e:
         print(f"Error getting pair for {token_address}: {e}")
@@ -71,59 +70,39 @@ def is_good_candidate(pair, profile):
     if not pair:
         return False
 
-    # Liquidity
     liquidity = float(pair.get("liquidity", {}).get("usd") or 0)
     if liquidity < MIN_LIQUIDITY:
         return False
 
-    # Market Cap
     mcap = float(pair.get("marketCap") or pair.get("fdv") or 0)
     if mcap < MIN_MARKET_CAP or mcap > MAX_MARKET_CAP:
         return False
 
-    # 24h Volume
     volume = float(pair.get("volume", {}).get("h24") or 0)
     if volume < MIN_VOLUME_24H:
         return False
 
-    # Age
     created = pair.get("pairCreatedAt")
     if created:
         age_hours = (time.time() * 1000 - created) / (1000 * 60 * 60)
-        if age_hours > MAX_AGE_HOURS or age_hours < 0.4:  # Avoid brand new (<25 mins)
+        if age_hours > MAX_AGE_HOURS or age_hours < 0.25:
             return False
 
-    # Buy pressure (last hour)
     txns = pair.get("txns", {}).get("h1", {})
     buys = txns.get("buys", 0)
     sells = txns.get("sells", 0)
     if sells == 0:
         ratio = 999
     else:
-        ratio = buys / sells
+        ratio = buys / max(sells, 1)
 
     if ratio < MIN_BUY_SELL_RATIO:
         return False
 
-    # Prefer tokens that have social links
-    links = profile.get("links") or []
-    has_social = any(link.get("type") in ["twitter", "telegram"] or "x.com" in str(link.get("url", "")).lower() for link in links)
-
-    # Score it lightly
-    score = 0
-    if has_social:
-        score += 2
-    if liquidity > 30000:
-        score += 1
-    if ratio > 1.4:
-        score += 1
-    if volume > 25000:
-        score += 1
-
-    return score >= 2  # Must hit at least 2 quality points
+    return True
 
 def main():
-    print(f"[{datetime.now(timezone.utc).isoformat()}] Starting improved scan...")
+    print(f"[{datetime.now(timezone.utc).isoformat()}] Starting looser scan...")
 
     seen = load_seen()
     profiles = get_latest_profiles()
@@ -141,7 +120,6 @@ def main():
         if not is_good_candidate(pair, profile):
             continue
 
-        # Build nice alert
         base = pair.get("baseToken", {})
         symbol = base.get("symbol", "???")
         name = base.get("name", "Unknown")
@@ -156,22 +134,22 @@ def main():
         sells = txns.get("sells", 0)
 
         message = (
-            f"🚀 <b>Early Solana Candidate</b>\n\n"
+            f"🚀 <b>Solana Alert</b>\n\n"
             f"<b>{symbol}</b> — {name}\n\n"
             f"💰 Price: ${price}\n"
             f"💧 Liquidity: ${liquidity:,.0f}\n"
             f"📊 Market Cap: ${mcap:,.0f}\n"
             f"📈 24h Vol: ${volume:,.0f}\n"
-            f"🟢 Buys (1h): {buys} | 🔴 Sells: {sells}\n\n"
+            f"🟢 Buys 1h: {buys} | 🔴 Sells: {sells}\n\n"
             f"<a href='{url}'>Open on DexScreener</a>"
         )
 
         send_telegram(message)
         seen.add(address)
         new_alerts += 1
-        print(f"Alert: {symbol} | Liq: ${liquidity:,.0f} | MCap: ${mcap:,.0f}")
+        print(f"Alert: {symbol} | Liq ${liquidity:,.0f} | MCap ${mcap:,.0f}")
 
-        time.sleep(1.3)
+        time.sleep(1.2)
 
     save_seen(seen)
     print(f"Scan complete. New alerts sent: {new_alerts}")
